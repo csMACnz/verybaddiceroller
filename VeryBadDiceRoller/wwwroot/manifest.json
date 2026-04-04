@@ -1,0 +1,12 @@
+{
+  "name": "Very Bad Dice Roller",
+  "short_name": "VBDRoller",
+  "description": "A very bad dice roller that secretly cheats.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#6366f1",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }
+  ]
+}

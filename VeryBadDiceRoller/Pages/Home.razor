@@ -10,100 +10,224 @@
 
 <header class="site-header">
     <div class="header-inner">
-        <h1 class="site-title">🎲 Very Bad Dice Roller</h1>
-        <p class="site-tagline">Inspired by <em>Very Good</em> Dice Roller. This one cheats.</p>
+        <div class="header-title-row">
+            <div>
+                <h1 class="site-title">🎲 Very Bad Dice Roller</h1>
+                <p class="site-tagline">Inspired by <em>Very Good</em> Dice Roller. This one cheats.</p>
+            </div>
+            <button class="cheat-toggle-btn @(showCheatMode ? "active" : "")"
+                    @onclick="() => showCheatMode = !showCheatMode"
+                    aria-pressed="@showCheatMode.ToString().ToLower()"
+                    aria-label="@(showCheatMode ? "Hide cheat mode details" : "Show cheat mode details")">
+                🎲 @(showCheatMode ? "Hide Cheat Mode" : "Show Cheat Mode")
+            </button>
+        </div>
     </div>
 </header>
 
-<!-- Weight Mode Banner -->
-<div class="mode-banner @(currentMode == WeightMode.Advantage ? "mode-advantage" : "mode-disadvantage")">
-    <div class="mode-banner-content">
-        <div class="mode-icon-label">
-            <span class="mode-icon">@(currentMode == WeightMode.Advantage ? "⬆" : "⬇")</span>
-            <span class="mode-name">@(currentMode == WeightMode.Advantage ? "ADVANTAGE" : "DISADVANTAGE") MODE</span>
+@* Weight mode banner — only visible when cheat mode toggle is on *@
+@if (showCheatMode)
+{
+    <div class="mode-banner @(currentInternalMode == WeightMode.Advantage ? "mode-advantage" : "mode-disadvantage")"
+         role="status" aria-live="polite">
+        <div class="mode-banner-content">
+            <div class="mode-icon-label">
+                <span class="mode-icon">@(currentInternalMode == WeightMode.Advantage ? "⬆" : "⬇")</span>
+                <span class="mode-name">@(currentInternalMode == WeightMode.Advantage ? "ADVANTAGE" : "DISADVANTAGE") WEIGHT</span>
+            </div>
+            <div class="mode-timer-wrap">
+                <span class="mode-timer-label">Time shift in</span>
+                <span class="mode-timer-value">@FormatCountdown(timeUntilChange)</span>
+            </div>
+            <div class="mode-rolls-wrap">
+                <span class="mode-timer-label">Rolls until shift</span>
+                <span class="mode-timer-value">@rollsUntilShift</span>
+            </div>
+            <div class="mode-progress-track" aria-hidden="true">
+                <div class="mode-progress-fill"
+                     style="width:@((phaseProgress * 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+            </div>
         </div>
-        <div class="mode-timer-wrap">
-            <span class="mode-timer-label">Switches in</span>
-            <span class="mode-timer-value">@FormatCountdown(timeUntilChange)</span>
-        </div>
-        <div class="mode-progress-track">
-            <div class="mode-progress-fill" style="width:@((phaseProgress * 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
-        </div>
+        <p class="mode-description">
+            Every die is secretly rolled <strong>twice</strong>.
+            In <strong>Advantage</strong> weight mode the <em>higher</em> result is kept.
+            In <strong>Disadvantage</strong> weight mode the <em>lower</em> result is kept.
+            The mode cycles automatically. There's nothing you can do about it. Sorry.
+        </p>
     </div>
-    <p class="mode-description">
-        Every die is secretly rolled <strong>twice</strong>.
-        In <strong>Advantage</strong> mode the <em>higher</em> result is kept.
-        In <strong>Disadvantage</strong> mode the <em>lower</em> result is kept.
-        The mode cycles automatically every 15&nbsp;seconds. There's nothing you can do about it. Sorry.
-    </p>
-</div>
+}
 
 <div class="app-main">
 
     <!-- ── Left panel: configuration ── -->
-    <section class="config-panel panel">
+    <section class="config-panel panel" aria-label="Roll configuration">
         <h2 class="panel-title">Configure Roll</h2>
+
+        <!-- RNG selection -->
+        <div class="field-group">
+            <label class="field-label" for="rng-select">RNG Algorithm</label>
+            <select id="rng-select" class="rng-select" @onchange="OnRngChanged" aria-label="Select random number generator">
+                <option value="mt" selected="@(useMT)">Mersenne Twister (recommended)</option>
+                <option value="sys" selected="@(!useMT)">System.Random</option>
+            </select>
+        </div>
+
+        <!-- Roll mode -->
+        <div class="field-group">
+            <label class="field-label">Roll Mode</label>
+            <div class="toggle-row" role="group" aria-label="Roll mode selection">
+                @foreach (var mode in Enum.GetValues<UserRollMode>())
+                {
+                    <button class="toggle-btn @(userRollMode == mode ? "active" : "")"
+                            @onclick="() => userRollMode = mode"
+                            aria-pressed="@((userRollMode == mode).ToString().ToLower())"
+                            aria-label="@mode roll mode">
+                        @(mode == UserRollMode.Advantage ? "⬆ " : mode == UserRollMode.Disadvantage ? "⬇ " : "")@mode
+                    </button>
+                }
+            </div>
+        </div>
 
         <!-- Die type -->
         <div class="field-group">
             <label class="field-label">Die Type</label>
-            <div class="die-type-row">
+            <div class="die-type-row" role="group" aria-label="Die type selection">
                 @foreach (var die in DiceSizes)
                 {
-                    <button class="die-btn die-d@(die) @(selectedDie == die ? "die-selected" : "")"
-                            @onclick="() => selectedDie = die"
-                            title="d@(die)">
+                    <button class="die-btn die-d@(die) @(selectedDie == die ? "die-selected" : "") @(expressionMode ? "die-expr-mode" : "")"
+                            @onclick="() => OnDieClicked(die)"
+                            title="d@(die)"
+                            aria-label="d@(die) die @(expressionMode ? "(add to expression)" : "(select)")"
+                            aria-pressed="@((selectedDie == die && !expressionMode).ToString().ToLower())">
                         d@(die)
                     </button>
                 }
             </div>
         </div>
 
-        <!-- Count -->
+        <!-- Expression builder -->
         <div class="field-group">
-            <label class="field-label">Number of Dice</label>
-            <div class="count-row">
-                <button class="stepper-btn" @onclick="DecrementCount" disabled="@(selectedCount <= 1)">−</button>
-                <span class="count-value">@selectedCount</span>
-                <button class="stepper-btn" @onclick="IncrementCount" disabled="@(selectedCount >= 20)">+</button>
-                <div class="count-presets">
-                    @foreach (var n in new[] { 1, 2, 3, 4, 5, 6, 8, 10 })
-                    {
-                        <button class="preset-btn @(selectedCount == n ? "preset-selected" : "")"
-                                @onclick="() => selectedCount = n">@n</button>
-                    }
+            <div class="expr-header">
+                <label class="field-label">Expression Builder</label>
+                <button class="toggle-btn @(expressionMode ? "active" : "")"
+                        @onclick="ToggleExpressionMode"
+                        aria-pressed="@expressionMode.ToString().ToLower()"
+                        aria-label="Toggle expression builder mode">
+                    @(expressionMode ? "ON" : "OFF")
+                </button>
+            </div>
+            @if (expressionMode || expression.Count > 0)
+            {
+                <div class="expr-display" aria-label="Current expression" aria-live="polite">
+                    @(expression.Count == 0 ? "Click dice to build expression…" : ExpressionText)
+                </div>
+                <div class="expr-actions">
+                    <button class="roll-btn expr-roll-btn" @onclick="RollExpression"
+                            disabled="@(expression.Count == 0)"
+                            aria-label="Roll the expression">
+                        🎲 Roll Expression
+                    </button>
+                    <button class="link-btn" @onclick="SaveExpression"
+                            disabled="@(expression.Count == 0)"
+                            aria-label="Save expression for reuse">
+                        💾 Save
+                    </button>
+                    <button class="link-btn danger-link" @onclick="ClearExpression"
+                            disabled="@(expression.Count == 0)"
+                            aria-label="Clear expression">
+                        Clear
+                    </button>
+                </div>
+            }
+        </div>
+
+        <!-- Count (hidden in expression mode) -->
+        @if (!expressionMode)
+        {
+            <div class="field-group">
+                <label class="field-label">Number of Dice (1–100)</label>
+                <div class="count-row">
+                    <button class="stepper-btn" @onclick="DecrementCount"
+                            disabled="@(selectedCount <= 1)"
+                            aria-label="Decrease die count">−</button>
+                    <span class="count-value" aria-live="polite" aria-atomic="true">@selectedCount</span>
+                    <button class="stepper-btn" @onclick="IncrementCount"
+                            disabled="@(selectedCount >= 100)"
+                            aria-label="Increase die count">+</button>
+                    <div class="count-presets" role="group" aria-label="Quick die count presets">
+                        @foreach (var n in new[] { 1, 2, 3, 4, 5, 6, 8, 10 })
+                        {
+                            <button class="preset-btn @(selectedCount == n ? "preset-selected" : "")"
+                                    @onclick="() => selectedCount = n"
+                                    aria-pressed="@((selectedCount == n).ToString().ToLower())"
+                                    aria-label="Set count to @n">@n</button>
+                        }
+                    </div>
                 </div>
             </div>
-        </div>
+        }
 
         <!-- Modifier -->
         <div class="field-group">
-            <label class="field-label">Modifier</label>
+            <div class="modifier-header">
+                <label class="field-label">Modifier</label>
+                <button class="toggle-btn @(modPerDie ? "active" : "")"
+                        @onclick="() => modPerDie = !modPerDie"
+                        aria-pressed="@modPerDie.ToString().ToLower()"
+                        aria-label="@(modPerDie ? "Modifier applied per die. Click to switch to per roll" : "Modifier applied per roll. Click to switch to per die")">
+                    @(modPerDie ? "Per Die" : "Per Roll")
+                </button>
+            </div>
             <div class="modifier-row">
-                <button class="stepper-btn" @onclick="() => modifier--">−</button>
-                <input type="number" class="modifier-input" @bind="modifier" @bind:event="oninput" min="-99" max="99" />
-                <button class="stepper-btn" @onclick="() => modifier++">+</button>
-                <span class="notation-preview">→ @CurrentNotation</span>
+                <button class="stepper-btn" @onclick="() => modifier--" aria-label="Decrease modifier">−</button>
+                <input type="number" class="modifier-input" @bind="modifier" @bind:event="oninput"
+                       min="-99" max="99" aria-label="Modifier value" />
+                <button class="stepper-btn" @onclick="() => modifier++" aria-label="Increase modifier">+</button>
+                <span class="notation-preview" aria-live="polite">→ @CurrentNotation</span>
                 @if (modifier != 0)
                 {
-                    <button class="link-btn" @onclick="() => modifier = 0">clear</button>
+                    <button class="link-btn" @onclick="() => modifier = 0" aria-label="Clear modifier">clear</button>
+                }
+            </div>
+            <div class="modifier-grid" role="group" aria-label="Modifier quick-select buttons">
+                @foreach (var m in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
+                {
+                    <button class="mod-btn mod-pos" @onclick="() => modifier += m" aria-label="Add @m to modifier">+@m</button>
+                }
+                @foreach (var m in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
+                {
+                    <button class="mod-btn mod-neg" @onclick="() => modifier -= m" aria-label="Subtract @m from modifier">-@m</button>
                 }
             </div>
         </div>
 
         <!-- Label -->
         <div class="field-group">
-            <label class="field-label">Label <span class="optional">(optional)</span></label>
-            <input type="text" class="text-input" @bind="rollLabel" @bind:event="oninput"
-                   placeholder="e.g. Attack Roll, Stealth Check…" maxlength="60" />
+            <label class="field-label" for="roll-label">Label <span class="optional">(optional)</span></label>
+            <input id="roll-label" type="text" class="text-input" @bind="rollLabel" @bind:event="oninput"
+                   placeholder="e.g. Attack Roll, Stealth Check…" maxlength="60"
+                   aria-label="Optional label for this roll" />
         </div>
 
         <!-- Roll button -->
-        <div class="action-row">
-            <button class="roll-btn" @onclick="RollDice">
-                🎲 Roll @CurrentNotation
-            </button>
-            <button class="link-btn" @onclick="ResetConfig">Reset</button>
+        @if (!expressionMode)
+        {
+            <div class="action-row">
+                <button class="roll-btn" @onclick="RollDice" aria-label="Roll @CurrentNotation">
+                    🎲 Roll @CurrentNotation
+                </button>
+                <button class="link-btn" @onclick="ResetConfig" aria-label="Reset all roll configuration">Reset</button>
+            </div>
+        }
+
+        <!-- Toolbar buttons -->
+        <div class="toolbar-row">
+            <button class="tool-btn" @onclick="() => showStatsModal = true"
+                    aria-label="Open session statistics">📊 Statistics</button>
+            <button class="tool-btn" @onclick="() => showTestModal = true"
+                    aria-label="Open randomness test">🎯 Test RNG</button>
+            <button class="tool-btn" @onclick="() => { showDndModal = true; GenerateDndCharacter(); }"
+                    aria-label="Generate D&D 5e character ability scores">⚔️ D&amp;D 5e</button>
         </div>
 
         <!-- Saved rolls -->
@@ -111,7 +235,8 @@
             <div class="saved-header">
                 <span class="field-label">Saved Rolls</span>
                 <button class="link-btn" @onclick="SaveCurrentRoll"
-                        disabled="@(savedRolls.Count >= 12)">+ Save Current</button>
+                        disabled="@(savedRolls.Count >= 12)"
+                        aria-label="Save current roll configuration">+ Save Current</button>
             </div>
             @if (savedRolls.Count == 0)
             {
@@ -119,16 +244,18 @@
             }
             else
             {
-                <ul class="saved-list">
+                <ul class="saved-list" aria-label="Saved roll configurations">
                     @foreach (var saved in savedRolls)
                     {
                         <li class="saved-item">
-                            <button class="saved-load-btn" @onclick="() => LoadSavedRoll(saved)">
+                            <button class="saved-load-btn" @onclick="() => LoadSavedRoll(saved)"
+                                    aria-label="Load saved roll: @saved.Name (@saved.Notation)">
                                 <span class="saved-name">@saved.Name</span>
                                 <span class="saved-notation">@saved.Notation</span>
                             </button>
                             <button class="saved-delete-btn" @onclick="() => DeleteSavedRoll(saved)"
-                                    title="Remove saved roll">×</button>
+                                    title="Remove saved roll"
+                                    aria-label="Delete saved roll @saved.Name">×</button>
                         </li>
                     }
                 </ul>
@@ -137,105 +264,330 @@
     </section>
 
     <!-- ── Right panel: results ── -->
-    <section class="results-panel panel">
+    <section class="results-panel panel" aria-label="Roll results">
 
-        @if (currentRoll != null)
-        {
-            <!-- Current result -->
-            <div class="current-result result-card @(currentRoll.Mode == WeightMode.Advantage ? "result-adv" : "result-dis")">
-                <div class="result-header">
-                    <div>
-                        <h3 class="result-title">@currentRoll.DisplayNotation</h3>
-                        <span class="result-time">@currentRoll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</span>
-                    </div>
-                    <span class="mode-badge @(currentRoll.Mode == WeightMode.Advantage ? "badge-adv" : "badge-dis")">
-                        @(currentRoll.Mode == WeightMode.Advantage ? "⬆ Advantage" : "⬇ Disadvantage")
-                    </span>
-                </div>
+        <div class="results-toolbar">
+            @if (currentRoll != null)
+            {
+                <button class="link-btn danger-link" @onclick="ClearResults"
+                        aria-label="Clear current results">✕ Clear Results</button>
+            }
+            <button class="toggle-btn @(showHistory ? "active" : "")"
+                    @onclick="() => showHistory = !showHistory"
+                    aria-pressed="@showHistory.ToString().ToLower()"
+                    aria-label="@(showHistory ? "Hide roll history" : "Show roll history")">
+                📋 @(showHistory ? "Hide History" : "Show History")
+            </button>
+        </div>
 
-                <div class="die-results-grid">
-                    @foreach (var die in currentRoll.Results)
-                    {
-                        <div class="die-card @(die.Value == die.DieSize ? "die-max" : die.Value == 1 ? "die-min" : "") @(die.IsBiased ? "die-biased" : "")">
-                            <div class="die-card-face">@die.Value</div>
-                            <div class="die-card-type">d@(die.DieSize)</div>
-                            @if (die.IsBiased)
-                            {
-                                <div class="die-card-dropped" title="Hidden roll — this result was discarded">
-                                    discarded: @die.DroppedValue
-                                </div>
-                            }
+        <div aria-live="polite" aria-atomic="false">
+            @if (currentRoll != null)
+            {
+                <div class="current-result result-card @(currentRoll.UserMode == UserRollMode.Advantage ? "result-adv" : currentRoll.UserMode == UserRollMode.Disadvantage ? "result-dis" : "result-normal")">
+                    <div class="result-header">
+                        <div>
+                            <h3 class="result-title">@currentRoll.DisplayNotation</h3>
+                            <span class="result-time">@currentRoll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</span>
                         </div>
-                    }
-                </div>
-
-                <div class="result-footer">
-                    @if (currentRoll.Count > 1 || currentRoll.Modifier != 0)
-                    {
-                        <div class="result-breakdown">
-                            <span>Dice sum: @currentRoll.Results.Sum(r => r.Value)</span>
-                            @if (currentRoll.Modifier != 0)
-                            {
-                                <span>Modifier: @(currentRoll.Modifier > 0 ? $"+{currentRoll.Modifier}" : $"{currentRoll.Modifier}")</span>
-                            }
-                        </div>
-                    }
-                    <div class="result-total">
-                        <span class="total-label">Total</span>
-                        <span class="total-value">@currentRoll.Total</span>
+                        <span class="mode-badge @(currentRoll.UserMode == UserRollMode.Advantage ? "badge-adv" : currentRoll.UserMode == UserRollMode.Disadvantage ? "badge-dis" : "badge-normal")">
+                            @(currentRoll.UserMode == UserRollMode.Advantage ? "⬆ Advantage" :
+                              currentRoll.UserMode == UserRollMode.Disadvantage ? "⬇ Disadvantage" : "⚖ Normal")
+                        </span>
                     </div>
-                    <button class="roll-again-btn" @onclick="RollAgain">🎲 Roll Again</button>
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="empty-result">
-                <div class="empty-die">🎲</div>
-                <p>Select a die and click <strong>Roll</strong> to begin!</p>
-            </div>
-        }
 
-        <!-- Roll history -->
-        @if (rollHistory.Count > 0)
+                    <div class="die-results-grid" aria-label="Individual die results">
+                        @foreach (var die in currentRoll.Results)
+                        {
+                            <div class="die-card @(die.Value == die.DieSize ? "die-max" : die.Value == 1 ? "die-min" : "") @(showCheatMode && die.IsBiased ? "die-biased" : "")">
+                                <div class="die-card-face">@die.Value</div>
+                                <div class="die-card-type">d@(die.DieSize)</div>
+                                @if (die.UserDropped.HasValue)
+                                {
+                                    <div class="die-card-user-dropped">
+                                        dropped: @die.UserDropped
+                                    </div>
+                                }
+                                @if (showCheatMode && die.IsBiased)
+                                {
+                                    <div class="die-card-dropped" title="Hidden internal roll — discarded by cheat engine">
+                                        🎲 @die.InternalDropped
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="result-footer">
+                        @if (currentRoll.Count > 1 || currentRoll.Modifier != 0)
+                        {
+                            <div class="result-breakdown">
+                                <span>Dice sum: @currentRoll.Results.Sum(r => r.Value)</span>
+                                @if (currentRoll.Modifier != 0)
+                                {
+                                    <span>@(currentRoll.ModPerDie ? "Mod/die" : "Mod"): @(currentRoll.Modifier > 0 ? $"+{currentRoll.Modifier}" : $"{currentRoll.Modifier}")</span>
+                                }
+                            </div>
+                        }
+                        <div class="result-total" aria-label="Total result">
+                            <span class="total-label">Total</span>
+                            <span class="total-value">@currentRoll.Total</span>
+                        </div>
+                        <button class="roll-again-btn" @onclick="RollAgain"
+                                aria-label="Roll again with same configuration">🎲 Roll Again</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="empty-result">
+                    <div class="empty-die">🎲</div>
+                    <p>No rolls yet. Click dice to get started!</p>
+                </div>
+            }
+        </div>
+
+        <!-- Roll history side panel -->
+        @if (showHistory)
         {
-            <div class="history-section">
+            <div class="history-panel" role="region" aria-label="Roll history" aria-live="polite">
                 <div class="history-header">
                     <h3 class="panel-title">Roll History</h3>
-                    <button class="link-btn danger-link" @onclick="ClearHistory">Clear all</button>
+                    @if (rollHistory.Count > 0)
+                    {
+                        <button class="link-btn danger-link" @onclick="ClearHistory"
+                                aria-label="Clear all roll history">Clear all</button>
+                    }
                 </div>
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Roll</th>
-                            <th>Mode</th>
-                            <th>Dice</th>
-                            <th class="col-total">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var (roll, idx) in rollHistory.Select((r, i) => (r, i)))
-                        {
-                            <tr class="@(idx == 0 ? "history-latest" : "")">
-                                <td class="col-time">@roll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</td>
-                                <td>@roll.DisplayNotation</td>
-                                <td>
-                                    <span class="history-mode @(roll.Mode == WeightMode.Advantage ? "text-adv" : "text-dis")">
-                                        @(roll.Mode == WeightMode.Advantage ? "⬆ Adv" : "⬇ Dis")
-                                    </span>
-                                </td>
-                                <td class="col-dice">[@string.Join(", ", roll.Results.Select(r => r.Value))]</td>
-                                <td class="col-total">@roll.Total</td>
+                @if (rollHistory.Count == 0)
+                {
+                    <p class="empty-note">No roll history yet.</p>
+                }
+                else
+                {
+                    <table class="history-table" aria-label="Roll history table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Time</th>
+                                <th scope="col">Roll</th>
+                                <th scope="col">Mode</th>
+                                <th scope="col">Dice</th>
+                                <th scope="col" class="col-total">Total</th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @foreach (var (roll, idx) in rollHistory.Select((r, i) => (r, i)))
+                            {
+                                <tr class="@(idx == 0 ? "history-latest" : "")">
+                                    <td class="col-time">@roll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</td>
+                                    <td>@roll.DisplayNotation</td>
+                                    <td>
+                                        <span class="history-mode @(roll.UserMode == UserRollMode.Advantage ? "text-adv" : roll.UserMode == UserRollMode.Disadvantage ? "text-dis" : "text-normal")">
+                                            @roll.RollTypeLabel
+                                        </span>
+                                    </td>
+                                    <td class="col-dice">[@string.Join(", ", roll.Results.Select(r => r.Value))]</td>
+                                    <td class="col-total">@roll.Total</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
             </div>
         }
     </section>
 
 </div>
+
+<!-- ── Statistics Modal ── -->
+@if (showStatsModal)
+{
+    <div class="modal-overlay" @onclick="() => showStatsModal = false" role="dialog" aria-modal="true" aria-label="Session statistics">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">📊 Session Statistics</span>
+                <button class="modal-close" @onclick="() => showStatsModal = false" aria-label="Close statistics modal">×</button>
+            </div>
+
+            <!-- Die type filter -->
+            <div class="stats-filter-row" role="group" aria-label="Filter by die type">
+                <label class="field-label">Die Type</label>
+                <div class="toggle-row">
+                    @foreach (var label in new[] { "All", "d4", "d6", "d8", "d10", "d12", "d20", "d100" })
+                    {
+                        <button class="toggle-btn @(statsDieFilter == label ? "active" : "")"
+                                @onclick="() => statsDieFilter = label"
+                                aria-pressed="@((statsDieFilter == label).ToString().ToLower())">@label</button>
+                    }
+                </div>
+            </div>
+
+            <!-- Roll type filter -->
+            <div class="stats-filter-row" role="group" aria-label="Filter by roll type">
+                <label class="field-label">Roll Type</label>
+                <div class="toggle-row">
+                    @foreach (var label in new[] { "All", "Natural", "Advantage", "Disadvantage" })
+                    {
+                        <button class="toggle-btn @(statsRollFilter == label ? "active" : "")"
+                                @onclick="() => statsRollFilter = label"
+                                aria-pressed="@((statsRollFilter == label).ToString().ToLower())">@label</button>
+                    }
+                </div>
+            </div>
+
+            <!-- Stats display -->
+            @{
+                var filteredRolls = GetFilteredHistory();
+                var allValues = filteredRolls.SelectMany(r => r.Results.Select(d => d.Value)).ToList();
+            }
+
+            @if (allValues.Count == 0)
+            {
+                <p class="empty-note" style="margin:1rem 0">No rolls match the current filter.</p>
+            }
+            else
+            {
+                <div class="stats-grid" role="region" aria-label="Statistics summary">
+                    <div class="stat-card"><div class="stat-val">@allValues.Count</div><div class="stat-lbl">Total Rolls</div></div>
+                    <div class="stat-card"><div class="stat-val">@allValues.Min()</div><div class="stat-lbl">Min</div></div>
+                    <div class="stat-card"><div class="stat-val">@allValues.Max()</div><div class="stat-lbl">Max</div></div>
+                    <div class="stat-card"><div class="stat-val">@allValues.Average().ToString("F2")</div><div class="stat-lbl">Average</div></div>
+                </div>
+
+                @if (statsDieFilter != "All")
+                {
+                    var dieSize = int.Parse(statsDieFilter[1..]);
+                    <div class="dist-section" aria-label="Value distribution">
+                        <p class="field-label" style="margin-bottom:.5rem">Distribution</p>
+                        @for (int face = 1; face <= dieSize; face++)
+                        {
+                            var count = allValues.Count(v => v == face);
+                            var pct = allValues.Count == 0 ? 0 : (double)count / allValues.Count * 100;
+                            <div class="dist-row">
+                                <span class="dist-label">@face</span>
+                                <div class="dist-bar-track">
+                                    <div class="dist-bar-fill" style="width:@(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                </div>
+                                <span class="dist-count">@count (@(pct.ToString("F0"))%)</span>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+
+            <div class="modal-footer">
+                <button class="tool-btn" @onclick="PopulateTestStats" aria-label="Populate statistics with sample test data">🧪 Test Statistics</button>
+                <button class="link-btn" @onclick="() => showStatsModal = false">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ── Randomness Test Modal ── -->
+@if (showTestModal)
+{
+    <div class="modal-overlay" @onclick="() => showTestModal = false" role="dialog" aria-modal="true" aria-label="Randomness test">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">🎯 Randomness Test</span>
+                <button class="modal-close" @onclick="() => showTestModal = false" aria-label="Close randomness test">×</button>
+            </div>
+            <p class="modal-desc">
+                Each die is rolled 10,000 times per cycle and checked for even distribution
+                using a chi-square test. ~30% of cycles may show at least one failure — that's normal.
+            </p>
+            <div class="modal-config-row">
+                <label class="field-label" for="test-cycles">Test Cycles</label>
+                <select id="test-cycles" class="rng-select" @onchange="OnTestCyclesChanged" aria-label="Number of test cycles">
+                    @foreach (var c in new[] { 20, 25, 30, 40, 50, 75, 100 })
+                    {
+                        <option value="@c" selected="@(testCycles == c)">@c</option>
+                    }
+                </select>
+                <label class="field-label" for="test-algo">Algorithm</label>
+                <select id="test-algo" class="rng-select" @onchange="OnTestAlgoChanged" aria-label="Select algorithm for test">
+                    <option value="mt" selected="@testUseMT">Mersenne Twister</option>
+                    <option value="sys" selected="@(!testUseMT)">System.Random</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="roll-btn" @onclick="RunRandomnessTest"
+                        disabled="@testRunning"
+                        aria-label="Run randomness test">▶ Run Test</button>
+            </div>
+            @if (!string.IsNullOrEmpty(testStatus))
+            {
+                <p class="test-status" role="status" aria-live="polite">@testStatus</p>
+            }
+            @if (testResults.Count > 0)
+            {
+                <table class="history-table" style="margin-top:1rem">
+                    <thead>
+                        <tr>
+                            <th>Die</th>
+                            <th>Cycles</th>
+                            <th>Failures</th>
+                            <th>Rate</th>
+                            <th>Verdict</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in testResults)
+                        {
+                            var ok = r.FailureRate >= FailRateLow && r.FailureRate <= FailRateHigh;
+                            <tr>
+                                <td>d@(r.DieSize)</td>
+                                <td>@r.CyclesTested</td>
+                                <td>@r.Failures</td>
+                                <td>@(r.FailureRate.ToString("P0"))</td>
+                                <td class="@(ok ? "text-adv" : "text-dis")">@(ok ? "✓ OK" : "⚠ Check")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="@TestVerdictClass" style="margin-top:.75rem;font-weight:700">@TestVerdictMessage</p>
+            }
+        </div>
+    </div>
+}
+
+<!-- ── D&D 5e Character Modal ── -->
+@if (showDndModal)
+{
+    <div class="modal-overlay" @onclick="() => showDndModal = false" role="dialog" aria-modal="true" aria-label="D&D 5e character generator">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">⚔️ D&amp;D 5e Ability Scores</span>
+                <button class="modal-close" @onclick="() => showDndModal = false" aria-label="Close D&D generator">×</button>
+            </div>
+            <p class="modal-desc">
+                Standard method: roll 4d6, drop the lowest, sum the remaining three. Repeated six times.
+                These rolls are <strong>unweighted</strong> — the cheat engine does not touch them.
+            </p>
+            @if (dndAbilityScores.Count > 0)
+            {
+                <div class="ability-scores-grid" aria-label="Generated ability scores">
+                    @foreach (var score in dndAbilityScores)
+                    {
+                        <div class="ability-card">
+                            <div class="ability-label">@score.Label</div>
+                            <div class="ability-score">@score.Score</div>
+                            <div class="ability-rolls">
+                                @foreach (var (roll, i) in score.Rolls.Select((r, i) => (r, i)))
+                                {
+                                    <span class="@(i == score.Rolls.Count - 1 ? "roll-dropped" : "roll-kept")">@roll</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            <div class="modal-footer">
+                <button class="roll-btn" @onclick="GenerateDndCharacter" aria-label="Reroll ability scores">🎲 Reroll</button>
+                <button class="link-btn" @onclick="() => showDndModal = false">Close</button>
+            </div>
+        </div>
+    </div>
+}
 
 <footer class="site-footer">
     <p>
@@ -248,26 +600,63 @@
 @code {
     private static readonly int[] DiceSizes = [4, 6, 8, 10, 12, 20, 100];
 
+    // ── Roll configuration ─────────────────────────────────────────────────
     private int selectedDie = 20;
     private int selectedCount = 1;
     private int modifier = 0;
+    private bool modPerDie = false;
     private string rollLabel = "";
+    private UserRollMode userRollMode = UserRollMode.Normal;
+    private bool useMT = true;
 
+    // ── Expression builder ─────────────────────────────────────────────────
+    private bool expressionMode = false;
+    private List<(int Count, int DieSize)> expression = [];
+    private string ExpressionText =>
+        string.Join(" + ", expression
+            .GroupBy(e => e.DieSize)
+            .OrderBy(g => g.Key)
+            .Select(g => $"{g.Sum(e => e.Count)}d{g.Key}"));
+
+    // ── Results / history ──────────────────────────────────────────────────
     private RollGroup? currentRoll;
     private readonly List<RollGroup> rollHistory = [];
     private List<SavedRoll> savedRolls = [];
+    private bool showHistory = false;
 
-    // Weight display state (updated every 100 ms)
-    private WeightMode currentMode;
+    // ── Cheat mode / weight display ────────────────────────────────────────
+    private bool showCheatMode = false;
+    private WeightMode currentInternalMode;
     private TimeSpan timeUntilChange;
     private double phaseProgress;
+    private int rollsUntilShift;
 
     private System.Threading.Timer? _timer;
 
-    private string CurrentNotation =>
-        $"{selectedCount}d{selectedDie}" +
-        (modifier > 0 ? $"+{modifier}" : modifier < 0 ? $"{modifier}" : "");
+    // ── Modal state ─────────────────────────────────────────────────────────
+    private bool showStatsModal = false;
+    private bool showTestModal = false;
+    private bool showDndModal = false;
 
+    // ── Statistics state ────────────────────────────────────────────────────
+    private string statsDieFilter = "All";
+    private string statsRollFilter = "All";
+
+    // ── Randomness test state ───────────────────────────────────────────────
+    private int testCycles = 100;
+    private bool testUseMT = true;
+    private bool testRunning = false;
+    private string testStatus = "";
+    private readonly List<TestResult> testResults = [];
+
+    // Expected per-cycle failure rate (chi-square at α=0.05, 7 dice → ~30% per cycle)
+    private const double FailRateLow  = 0.08;
+    private const double FailRateHigh = 0.55;
+
+    // ── D&D state ───────────────────────────────────────────────────────────
+    private List<AbilityScore> dndAbilityScores = [];
+
+    // ── Lifecycle ───────────────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
         UpdateWeightDisplay();
@@ -275,53 +664,123 @@
         {
             UpdateWeightDisplay();
             await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
+        }, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
 
         await LoadSavedRollsAsync();
     }
 
     private void UpdateWeightDisplay()
     {
-        currentMode = WeightService.GetCurrentMode();
-        timeUntilChange = WeightService.GetTimeUntilNextChange();
-        phaseProgress = WeightService.GetCurrentPhaseProgress();
+        currentInternalMode = WeightService.GetCurrentMode();
+        timeUntilChange     = WeightService.GetTimeUntilNextChange();
+        phaseProgress       = WeightService.GetCurrentPhaseProgress();
+        rollsUntilShift     = WeightService.RollThreshold - WeightService.RollsSinceShift;
     }
 
+    private string CurrentNotation =>
+        $"{selectedCount}d{selectedDie}" +
+        (modifier > 0 ? $"+{modifier}" : modifier < 0 ? $"{modifier}" : "");
+
     private static string FormatCountdown(TimeSpan t) =>
-        $"{(int)t.TotalSeconds:D2}.{t.Milliseconds / 100}s";
+        $"{(int)t.TotalMinutes:D2}:{t.Seconds:D2}";
 
-    private void IncrementCount() { if (selectedCount < 20) selectedCount++; }
-    private void DecrementCount() { if (selectedCount > 1) selectedCount--; }
+    // ── Die click (roll or add to expression) ───────────────────────────────
+    private void OnDieClicked(int die)
+    {
+        if (expressionMode)
+        {
+            selectedDie = die;
+            var existing = expression.FindIndex(e => e.DieSize == die);
+            if (existing >= 0)
+                expression[existing] = (expression[existing].Count + 1, die);
+            else
+                expression.Add((1, die));
+        }
+        else
+        {
+            selectedDie = die;
+        }
+    }
 
+    private void ToggleExpressionMode()
+    {
+        expressionMode = !expressionMode;
+        if (!expressionMode)
+            expression.Clear();
+    }
+
+    private void ClearExpression() => expression.Clear();
+
+    // ── Roll actions ─────────────────────────────────────────────────────────
     private void RollDice()
     {
         var label = string.IsNullOrWhiteSpace(rollLabel) ? null : rollLabel.Trim();
-        currentRoll = DiceService.Roll(selectedCount, selectedDie, modifier, label);
+        currentRoll = DiceService.Roll(selectedCount, selectedDie, modifier, label, userRollMode, modPerDie, useMT);
         PushHistory(currentRoll);
+    }
+
+    private void RollExpression()
+    {
+        if (expression.Count == 0) return;
+        // Roll each part and combine results
+        var allResults = new List<DieResult>();
+        WeightMode? internalMode = null;
+        foreach (var (count, dieSize) in expression)
+        {
+            var group = DiceService.Roll(count, dieSize, 0, null, userRollMode, false, useMT);
+            allResults.AddRange(group.Results);
+            internalMode ??= group.InternalMode;
+        }
+        var label = string.IsNullOrWhiteSpace(rollLabel) ? ExpressionText : rollLabel.Trim();
+        currentRoll = new RollGroup
+        {
+            Count       = allResults.Count,
+            DieSize     = 0,                 // mixed
+            Modifier    = modifier,
+            ModPerDie   = modPerDie,
+            Label       = label,
+            Results     = allResults,
+            InternalMode = internalMode ?? WeightMode.Advantage,
+            UserMode    = userRollMode,
+            RolledAt    = DateTime.UtcNow
+        };
+        PushHistory(currentRoll);
+        expressionMode = false;
+        expression.Clear();
+    }
+
+    private async Task SaveExpression()
+    {
+        if (expression.Count == 0) return;
+        var name = string.IsNullOrWhiteSpace(rollLabel) ? ExpressionText : rollLabel.Trim();
+        savedRolls.Add(new SavedRoll
+        {
+            Name = name,
+            Count = 0,
+            DieSize = 0,
+            Modifier = modifier,
+            ExpressionParts = expression.Select(e => new ExpressionPart { Count = e.Count, DieSize = e.DieSize }).ToList()
+        });
+        await PersistSavedRollsAsync();
     }
 
     private void RollAgain()
     {
         if (currentRoll == null) return;
         currentRoll = DiceService.Roll(
-            currentRoll.Count, currentRoll.DieSize, currentRoll.Modifier, currentRoll.Label);
+            currentRoll.Count, currentRoll.DieSize, currentRoll.Modifier,
+            currentRoll.Label, currentRoll.UserMode, currentRoll.ModPerDie, useMT);
         PushHistory(currentRoll);
     }
 
     private void PushHistory(RollGroup roll)
     {
         rollHistory.Insert(0, roll);
-        if (rollHistory.Count > 50)
+        if (rollHistory.Count > 100)
             rollHistory.RemoveAt(rollHistory.Count - 1);
     }
 
-    private void ResetConfig()
-    {
-        selectedDie = 20;
-        selectedCount = 1;
-        modifier = 0;
-        rollLabel = "";
-    }
+    private void ClearResults() => currentRoll = null;
 
     private void ClearHistory()
     {
@@ -329,13 +788,29 @@
         currentRoll = null;
     }
 
+    private void ResetConfig()
+    {
+        selectedDie   = 20;
+        selectedCount = 1;
+        modifier      = 0;
+        modPerDie     = false;
+        rollLabel     = "";
+        userRollMode  = UserRollMode.Normal;
+        expressionMode = false;
+        expression.Clear();
+    }
+
+    private void IncrementCount() { if (selectedCount < 100) selectedCount++; }
+    private void DecrementCount() { if (selectedCount > 1)  selectedCount--; }
+
+    // ── Saved rolls ──────────────────────────────────────────────────────────
     private async Task SaveCurrentRoll()
     {
         var name = string.IsNullOrWhiteSpace(rollLabel) ? CurrentNotation : rollLabel.Trim();
         savedRolls.Add(new SavedRoll
         {
-            Name = name,
-            Count = selectedCount,
+            Name    = name,
+            Count   = selectedCount,
             DieSize = selectedDie,
             Modifier = modifier
         });
@@ -344,10 +819,22 @@
 
     private void LoadSavedRoll(SavedRoll saved)
     {
-        selectedCount = saved.Count;
-        selectedDie = saved.DieSize;
-        modifier = saved.Modifier;
-        rollLabel = saved.Name != saved.Notation ? saved.Name : "";
+        if (saved.IsExpression)
+        {
+            expressionMode = true;
+            expression = saved.ExpressionParts!
+                .Select(p => (p.Count, p.DieSize)).ToList();
+            modifier = saved.Modifier;
+            rollLabel = saved.Name;
+        }
+        else
+        {
+            selectedCount = saved.Count;
+            selectedDie   = saved.DieSize;
+            modifier      = saved.Modifier;
+            rollLabel     = saved.Name != saved.Notation ? saved.Name : "";
+            expressionMode = false;
+        }
     }
 
     private async Task DeleteSavedRoll(SavedRoll saved)
@@ -364,7 +851,7 @@
             if (!string.IsNullOrEmpty(json))
                 savedRolls = System.Text.Json.JsonSerializer.Deserialize<List<SavedRoll>>(json) ?? [];
         }
-        catch { /* localStorage unavailable — carry on */ }
+        catch { /* localStorage unavailable */ }
     }
 
     private async Task PersistSavedRollsAsync()
@@ -377,10 +864,188 @@
         catch { }
     }
 
+    // ── Statistics ───────────────────────────────────────────────────────────
+    private IEnumerable<RollGroup> GetFilteredHistory()
+    {
+        var rolls = rollHistory.AsEnumerable();
+
+        // Die type filter
+        if (statsDieFilter != "All")
+        {
+            var dieSize = int.Parse(statsDieFilter[1..]);
+            rolls = rolls.Where(r => r.DieSize == dieSize);
+        }
+
+        // Roll type filter
+        rolls = statsRollFilter switch
+        {
+            "Natural"      => rolls.Where(r => r.UserMode == UserRollMode.Normal),
+            "Advantage"    => rolls.Where(r => r.UserMode == UserRollMode.Advantage),
+            "Disadvantage" => rolls.Where(r => r.UserMode == UserRollMode.Disadvantage),
+            _              => rolls
+        };
+
+        return rolls;
+    }
+
+    private void PopulateTestStats()
+    {
+        var rng = new Random(42);
+        rollHistory.Clear();
+        currentRoll = null;
+        int[] sizes = [4, 6, 8, 10, 12, 20, 100];
+        foreach (var size in sizes)
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                var mode = (UserRollMode)(rng.Next(3));
+                var results = Enumerable.Range(0, rng.Next(1, 4))
+                    .Select(_ => new DieResult { DieSize = size, Value = rng.Next(1, size + 1) })
+                    .ToList();
+                rollHistory.Add(new RollGroup
+                {
+                    Count       = results.Count,
+                    DieSize     = size,
+                    Modifier    = 0,
+                    ModPerDie   = false,
+                    Results     = results,
+                    InternalMode = WeightMode.Advantage,
+                    UserMode    = mode,
+                    RolledAt    = DateTime.UtcNow.AddMinutes(-rng.Next(60))
+                });
+            }
+        }
+    }
+
+    // ── Randomness Test ──────────────────────────────────────────────────────
+    private async Task RunRandomnessTest()
+    {
+        testRunning = true;
+        testResults.Clear();
+        testStatus = "Running…";
+        StateHasChanged();
+
+        int[] dice = [4, 6, 8, 10, 12, 20, 100];
+        // Chi-square critical values at α=0.05 for df = sides-1
+        var chiCriticals = new Dictionary<int, double>
+        {
+            [4]   = 7.815,
+            [6]   = 11.070,
+            [8]   = 14.067,
+            [10]  = 16.919,
+            [12]  = 19.675,
+            [20]  = 30.144,
+            [100] = 123.225
+        };
+
+        foreach (var dieSize in dice)
+        {
+            int failures = 0;
+            double critical = chiCriticals[dieSize];
+
+            for (int cycle = 0; cycle < testCycles; cycle++)
+            {
+                var counts = new int[dieSize + 1];
+                for (int r = 0; r < 10_000; r++)
+                    counts[DiceService.RollRawWithAlgorithm(dieSize, testUseMT)]++;
+
+                double expected = 10_000.0 / dieSize;
+                double chi = 0;
+                for (int face = 1; face <= dieSize; face++)
+                    chi += Math.Pow(counts[face] - expected, 2) / expected;
+
+                if (chi > critical) failures++;
+
+                if (cycle % 5 == 0)
+                {
+                    testStatus = $"Testing d{dieSize} — cycle {cycle + 1}/{testCycles}…";
+                    StateHasChanged();
+                    await Task.Yield();
+                }
+            }
+
+            testResults.Add(new TestResult
+            {
+                DieSize      = dieSize,
+                CyclesTested = testCycles,
+                Failures     = failures,
+                FailureRate  = (double)failures / testCycles
+            });
+        }
+
+        testStatus = $"Complete — {dice.Length} dice × {testCycles} cycles × 10,000 rolls.";
+        testRunning = false;
+    }
+
+    private string TestVerdictClass
+    {
+        get
+        {
+            if (testResults.Count == 0) return "";
+            bool allOk = testResults.All(r => r.FailureRate >= FailRateLow && r.FailureRate <= FailRateHigh);
+            bool allSuspect = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
+            return allOk ? "text-adv" : allSuspect ? "text-dis" : "text-warn";
+        }
+    }
+
+    private string TestVerdictMessage
+    {
+        get
+        {
+            if (testResults.Count == 0) return "";
+            bool allOk = testResults.All(r => r.FailureRate >= FailRateLow && r.FailureRate <= FailRateHigh);
+            bool allSuspect = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
+            return allOk
+                ? "✓ RNG appears healthy — failure rates near expected ~30% per cycle."
+                : allSuspect
+                    ? "⚠ Suspicious result — consider switching algorithms."
+                    : "⚠ Mixed results — some dice show unusual patterns.";
+        }
+    }
+
+    // ── D&D Character Generator ───────────────────────────────────────────────
+    private void GenerateDndCharacter()
+    {
+        string[] labels = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+        dndAbilityScores = labels.Select(label =>
+        {
+            var rolls = Enumerable.Range(0, 4)
+                .Select(_ => DiceService.RollUnweighted(6, useMT))
+                .OrderByDescending(v => v)
+                .ToList();
+            return new AbilityScore { Label = label, Score = rolls.Take(3).Sum(), Rolls = rolls };
+        }).ToList();
+    }
+
+    // ── Event handlers ────────────────────────────────────────────────────────
+    private void OnRngChanged(ChangeEventArgs e) => useMT = e.Value?.ToString() == "mt";
+    private void OnTestCyclesChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var c)) testCycles = c;
+    }
+    private void OnTestAlgoChanged(ChangeEventArgs e) => testUseMT = e.Value?.ToString() == "mt";
+
+    // ── Lifecycle disposal ────────────────────────────────────────────────────
     public async ValueTask DisposeAsync()
     {
         if (_timer != null)
             await _timer.DisposeAsync();
+    }
+
+    // ── Inner types ───────────────────────────────────────────────────────────
+    private record TestResult
+    {
+        public int DieSize      { get; init; }
+        public int CyclesTested { get; init; }
+        public int Failures     { get; init; }
+        public double FailureRate { get; init; }
+    }
+
+    private record AbilityScore
+    {
+        public string Label    { get; init; } = "";
+        public int Score       { get; init; }
+        public List<int> Rolls { get; init; } = [];
     }
 }
 
