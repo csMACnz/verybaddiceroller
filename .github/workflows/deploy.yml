@@ -1,0 +1,69 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one concurrent deployment; cancel in-flight runs on the same branch.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Blazor WASM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore VeryBadDiceRoller/VeryBadDiceRoller.csproj
+
+      - name: Publish
+        run: >
+          dotnet publish VeryBadDiceRoller/VeryBadDiceRoller.csproj
+          -c Release
+          -o publish
+          --nologo
+
+      - name: Patch base href for GitHub Pages sub-path
+        run: |
+          sed -i 's|<base href="/" />|<base href="/${{ github.event.repository.name }}/" />|g' \
+            publish/wwwroot/index.html
+
+      # GitHub Pages 404 → index.html trick for Blazor SPA routing
+      - name: Copy 404 page
+        run: cp publish/wwwroot/index.html publish/wwwroot/404.html
+
+      # GitHub Pages needs a .nojekyll file to serve files that start with _
+      - name: Add .nojekyll
+        run: touch publish/wwwroot/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

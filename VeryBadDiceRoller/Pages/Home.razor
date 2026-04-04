@@ -1,0 +1,386 @@
+﻿@page "/"
+@using VeryBadDiceRoller.Models
+@using VeryBadDiceRoller.Services
+@inject DiceService DiceService
+@inject WeightService WeightService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Very Bad Dice Roller</PageTitle>
+
+<header class="site-header">
+    <div class="header-inner">
+        <h1 class="site-title">🎲 Very Bad Dice Roller</h1>
+        <p class="site-tagline">Inspired by <em>Very Good</em> Dice Roller. This one cheats.</p>
+    </div>
+</header>
+
+<!-- Weight Mode Banner -->
+<div class="mode-banner @(currentMode == WeightMode.Advantage ? "mode-advantage" : "mode-disadvantage")">
+    <div class="mode-banner-content">
+        <div class="mode-icon-label">
+            <span class="mode-icon">@(currentMode == WeightMode.Advantage ? "⬆" : "⬇")</span>
+            <span class="mode-name">@(currentMode == WeightMode.Advantage ? "ADVANTAGE" : "DISADVANTAGE") MODE</span>
+        </div>
+        <div class="mode-timer-wrap">
+            <span class="mode-timer-label">Switches in</span>
+            <span class="mode-timer-value">@FormatCountdown(timeUntilChange)</span>
+        </div>
+        <div class="mode-progress-track">
+            <div class="mode-progress-fill" style="width:@((phaseProgress * 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+        </div>
+    </div>
+    <p class="mode-description">
+        Every die is secretly rolled <strong>twice</strong>.
+        In <strong>Advantage</strong> mode the <em>higher</em> result is kept.
+        In <strong>Disadvantage</strong> mode the <em>lower</em> result is kept.
+        The mode cycles automatically every 15&nbsp;seconds. There's nothing you can do about it. Sorry.
+    </p>
+</div>
+
+<div class="app-main">
+
+    <!-- ── Left panel: configuration ── -->
+    <section class="config-panel panel">
+        <h2 class="panel-title">Configure Roll</h2>
+
+        <!-- Die type -->
+        <div class="field-group">
+            <label class="field-label">Die Type</label>
+            <div class="die-type-row">
+                @foreach (var die in DiceSizes)
+                {
+                    <button class="die-btn die-d@(die) @(selectedDie == die ? "die-selected" : "")"
+                            @onclick="() => selectedDie = die"
+                            title="d@(die)">
+                        d@(die)
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Count -->
+        <div class="field-group">
+            <label class="field-label">Number of Dice</label>
+            <div class="count-row">
+                <button class="stepper-btn" @onclick="DecrementCount" disabled="@(selectedCount <= 1)">−</button>
+                <span class="count-value">@selectedCount</span>
+                <button class="stepper-btn" @onclick="IncrementCount" disabled="@(selectedCount >= 20)">+</button>
+                <div class="count-presets">
+                    @foreach (var n in new[] { 1, 2, 3, 4, 5, 6, 8, 10 })
+                    {
+                        <button class="preset-btn @(selectedCount == n ? "preset-selected" : "")"
+                                @onclick="() => selectedCount = n">@n</button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Modifier -->
+        <div class="field-group">
+            <label class="field-label">Modifier</label>
+            <div class="modifier-row">
+                <button class="stepper-btn" @onclick="() => modifier--">−</button>
+                <input type="number" class="modifier-input" @bind="modifier" @bind:event="oninput" min="-99" max="99" />
+                <button class="stepper-btn" @onclick="() => modifier++">+</button>
+                <span class="notation-preview">→ @CurrentNotation</span>
+                @if (modifier != 0)
+                {
+                    <button class="link-btn" @onclick="() => modifier = 0">clear</button>
+                }
+            </div>
+        </div>
+
+        <!-- Label -->
+        <div class="field-group">
+            <label class="field-label">Label <span class="optional">(optional)</span></label>
+            <input type="text" class="text-input" @bind="rollLabel" @bind:event="oninput"
+                   placeholder="e.g. Attack Roll, Stealth Check…" maxlength="60" />
+        </div>
+
+        <!-- Roll button -->
+        <div class="action-row">
+            <button class="roll-btn" @onclick="RollDice">
+                🎲 Roll @CurrentNotation
+            </button>
+            <button class="link-btn" @onclick="ResetConfig">Reset</button>
+        </div>
+
+        <!-- Saved rolls -->
+        <div class="saved-section">
+            <div class="saved-header">
+                <span class="field-label">Saved Rolls</span>
+                <button class="link-btn" @onclick="SaveCurrentRoll"
+                        disabled="@(savedRolls.Count >= 12)">+ Save Current</button>
+            </div>
+            @if (savedRolls.Count == 0)
+            {
+                <p class="empty-note">No saved rolls yet.</p>
+            }
+            else
+            {
+                <ul class="saved-list">
+                    @foreach (var saved in savedRolls)
+                    {
+                        <li class="saved-item">
+                            <button class="saved-load-btn" @onclick="() => LoadSavedRoll(saved)">
+                                <span class="saved-name">@saved.Name</span>
+                                <span class="saved-notation">@saved.Notation</span>
+                            </button>
+                            <button class="saved-delete-btn" @onclick="() => DeleteSavedRoll(saved)"
+                                    title="Remove saved roll">×</button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </section>
+
+    <!-- ── Right panel: results ── -->
+    <section class="results-panel panel">
+
+        @if (currentRoll != null)
+        {
+            <!-- Current result -->
+            <div class="current-result result-card @(currentRoll.Mode == WeightMode.Advantage ? "result-adv" : "result-dis")">
+                <div class="result-header">
+                    <div>
+                        <h3 class="result-title">@currentRoll.DisplayNotation</h3>
+                        <span class="result-time">@currentRoll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                    </div>
+                    <span class="mode-badge @(currentRoll.Mode == WeightMode.Advantage ? "badge-adv" : "badge-dis")">
+                        @(currentRoll.Mode == WeightMode.Advantage ? "⬆ Advantage" : "⬇ Disadvantage")
+                    </span>
+                </div>
+
+                <div class="die-results-grid">
+                    @foreach (var die in currentRoll.Results)
+                    {
+                        <div class="die-card @(die.Value == die.DieSize ? "die-max" : die.Value == 1 ? "die-min" : "") @(die.IsBiased ? "die-biased" : "")">
+                            <div class="die-card-face">@die.Value</div>
+                            <div class="die-card-type">d@(die.DieSize)</div>
+                            @if (die.IsBiased)
+                            {
+                                <div class="die-card-dropped" title="Hidden roll — this result was discarded">
+                                    discarded: @die.DroppedValue
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="result-footer">
+                    @if (currentRoll.Count > 1 || currentRoll.Modifier != 0)
+                    {
+                        <div class="result-breakdown">
+                            <span>Dice sum: @currentRoll.Results.Sum(r => r.Value)</span>
+                            @if (currentRoll.Modifier != 0)
+                            {
+                                <span>Modifier: @(currentRoll.Modifier > 0 ? $"+{currentRoll.Modifier}" : $"{currentRoll.Modifier}")</span>
+                            }
+                        </div>
+                    }
+                    <div class="result-total">
+                        <span class="total-label">Total</span>
+                        <span class="total-value">@currentRoll.Total</span>
+                    </div>
+                    <button class="roll-again-btn" @onclick="RollAgain">🎲 Roll Again</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="empty-result">
+                <div class="empty-die">🎲</div>
+                <p>Select a die and click <strong>Roll</strong> to begin!</p>
+            </div>
+        }
+
+        <!-- Roll history -->
+        @if (rollHistory.Count > 0)
+        {
+            <div class="history-section">
+                <div class="history-header">
+                    <h3 class="panel-title">Roll History</h3>
+                    <button class="link-btn danger-link" @onclick="ClearHistory">Clear all</button>
+                </div>
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Roll</th>
+                            <th>Mode</th>
+                            <th>Dice</th>
+                            <th class="col-total">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var (roll, idx) in rollHistory.Select((r, i) => (r, i)))
+                        {
+                            <tr class="@(idx == 0 ? "history-latest" : "")">
+                                <td class="col-time">@roll.RolledAt.ToLocalTime().ToString("HH:mm:ss")</td>
+                                <td>@roll.DisplayNotation</td>
+                                <td>
+                                    <span class="history-mode @(roll.Mode == WeightMode.Advantage ? "text-adv" : "text-dis")">
+                                        @(roll.Mode == WeightMode.Advantage ? "⬆ Adv" : "⬇ Dis")
+                                    </span>
+                                </td>
+                                <td class="col-dice">[@string.Join(", ", roll.Results.Select(r => r.Value))]</td>
+                                <td class="col-total">@roll.Total</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+</div>
+
+<footer class="site-footer">
+    <p>
+        Inspired by <a href="https://verygooddiceroller.com/" target="_blank" rel="noopener">Very Good Dice Roller</a>.
+        This one is <strong>very bad</strong> — it secretly applies advantage or disadvantage to every single roll,
+        and switches modes on its own schedule. You have been warned.
+    </p>
+</footer>
+
+@code {
+    private static readonly int[] DiceSizes = [4, 6, 8, 10, 12, 20, 100];
+
+    private int selectedDie = 20;
+    private int selectedCount = 1;
+    private int modifier = 0;
+    private string rollLabel = "";
+
+    private RollGroup? currentRoll;
+    private readonly List<RollGroup> rollHistory = [];
+    private List<SavedRoll> savedRolls = [];
+
+    // Weight display state (updated every 100 ms)
+    private WeightMode currentMode;
+    private TimeSpan timeUntilChange;
+    private double phaseProgress;
+
+    private System.Threading.Timer? _timer;
+
+    private string CurrentNotation =>
+        $"{selectedCount}d{selectedDie}" +
+        (modifier > 0 ? $"+{modifier}" : modifier < 0 ? $"{modifier}" : "");
+
+    protected override async Task OnInitializedAsync()
+    {
+        UpdateWeightDisplay();
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            UpdateWeightDisplay();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
+
+        await LoadSavedRollsAsync();
+    }
+
+    private void UpdateWeightDisplay()
+    {
+        currentMode = WeightService.GetCurrentMode();
+        timeUntilChange = WeightService.GetTimeUntilNextChange();
+        phaseProgress = WeightService.GetCurrentPhaseProgress();
+    }
+
+    private static string FormatCountdown(TimeSpan t) =>
+        $"{(int)t.TotalSeconds:D2}.{t.Milliseconds / 100}s";
+
+    private void IncrementCount() { if (selectedCount < 20) selectedCount++; }
+    private void DecrementCount() { if (selectedCount > 1) selectedCount--; }
+
+    private void RollDice()
+    {
+        var label = string.IsNullOrWhiteSpace(rollLabel) ? null : rollLabel.Trim();
+        currentRoll = DiceService.Roll(selectedCount, selectedDie, modifier, label);
+        PushHistory(currentRoll);
+    }
+
+    private void RollAgain()
+    {
+        if (currentRoll == null) return;
+        currentRoll = DiceService.Roll(
+            currentRoll.Count, currentRoll.DieSize, currentRoll.Modifier, currentRoll.Label);
+        PushHistory(currentRoll);
+    }
+
+    private void PushHistory(RollGroup roll)
+    {
+        rollHistory.Insert(0, roll);
+        if (rollHistory.Count > 50)
+            rollHistory.RemoveAt(rollHistory.Count - 1);
+    }
+
+    private void ResetConfig()
+    {
+        selectedDie = 20;
+        selectedCount = 1;
+        modifier = 0;
+        rollLabel = "";
+    }
+
+    private void ClearHistory()
+    {
+        rollHistory.Clear();
+        currentRoll = null;
+    }
+
+    private async Task SaveCurrentRoll()
+    {
+        var name = string.IsNullOrWhiteSpace(rollLabel) ? CurrentNotation : rollLabel.Trim();
+        savedRolls.Add(new SavedRoll
+        {
+            Name = name,
+            Count = selectedCount,
+            DieSize = selectedDie,
+            Modifier = modifier
+        });
+        await PersistSavedRollsAsync();
+    }
+
+    private void LoadSavedRoll(SavedRoll saved)
+    {
+        selectedCount = saved.Count;
+        selectedDie = saved.DieSize;
+        modifier = saved.Modifier;
+        rollLabel = saved.Name != saved.Notation ? saved.Name : "";
+    }
+
+    private async Task DeleteSavedRoll(SavedRoll saved)
+    {
+        savedRolls.Remove(saved);
+        await PersistSavedRollsAsync();
+    }
+
+    private async Task LoadSavedRollsAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", "vbdr-saved-rolls");
+            if (!string.IsNullOrEmpty(json))
+                savedRolls = System.Text.Json.JsonSerializer.Deserialize<List<SavedRoll>>(json) ?? [];
+        }
+        catch { /* localStorage unavailable — carry on */ }
+    }
+
+    private async Task PersistSavedRollsAsync()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(savedRolls);
+            await JS.InvokeVoidAsync("localStorage.setItem", "vbdr-saved-rolls", json);
+        }
+        catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_timer != null)
+            await _timer.DisposeAsync();
+    }
+}
+
