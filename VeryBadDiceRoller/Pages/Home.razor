@@ -54,6 +54,15 @@
             In <strong>Disadvantage</strong> weight mode the <em>lower</em> result is kept.
             The mode cycles automatically. There's nothing you can do about it. Sorry.
         </p>
+        <div class="mode-bad-toggle">
+            <span class="mode-timer-label">Bad Mode</span>
+            <button class="toggle-btn @(badModeEnabled ? "active" : "")"
+                    @onclick="() => badModeEnabled = !badModeEnabled"
+                    aria-pressed="@badModeEnabled.ToString().ToLower()"
+                    aria-label="@(badModeEnabled ? "Bad mode is on. Click to disable cheating and use a fair dice roller." : "Bad mode is off. Click to re-enable cheating.")">
+                @(badModeEnabled ? "ON" : "OFF")
+            </button>
+        </div>
     </div>
 }
 
@@ -626,6 +635,7 @@
 
     // ── Cheat mode / weight display ────────────────────────────────────────
     private bool showCheatMode = false;
+    private bool badModeEnabled = true;
     private WeightMode currentInternalMode;
     private TimeSpan timeUntilChange;
     private double phaseProgress;
@@ -715,7 +725,7 @@
     private void RollDice()
     {
         var label = string.IsNullOrWhiteSpace(rollLabel) ? null : rollLabel.Trim();
-        currentRoll = DiceService.Roll(selectedCount, selectedDie, modifier, label, userRollMode, modPerDie, useMT);
+        currentRoll = DiceService.Roll(selectedCount, selectedDie, modifier, label, userRollMode, modPerDie, useMT, badModeEnabled);
         PushHistory(currentRoll);
     }
 
@@ -727,7 +737,7 @@
         WeightMode? internalMode = null;
         foreach (var (count, dieSize) in expression)
         {
-            var group = DiceService.Roll(count, dieSize, 0, null, userRollMode, false, useMT);
+            var group = DiceService.Roll(count, dieSize, 0, null, userRollMode, false, useMT, badModeEnabled);
             allResults.AddRange(group.Results);
             internalMode ??= group.InternalMode;
         }
@@ -769,7 +779,7 @@
         if (currentRoll == null) return;
         currentRoll = DiceService.Roll(
             currentRoll.Count, currentRoll.DieSize, currentRoll.Modifier,
-            currentRoll.Label, currentRoll.UserMode, currentRoll.ModPerDie, useMT);
+            currentRoll.Label, currentRoll.UserMode, currentRoll.ModPerDie, useMT, badModeEnabled);
         PushHistory(currentRoll);
     }
 
