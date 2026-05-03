@@ -20,6 +20,15 @@ public class DiceService
     public int RollRawWithAlgorithm(int dieSize, bool useMT) =>
         useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
 
+    /// <summary>
+    /// Rolls a single die for the randomness test, applying the current bad-mode bias
+    /// (or bypassing it when <paramref name="badModeEnabled"/> is <c>false</c>),
+    /// but without recording the roll or triggering mode-shift side effects.
+    /// Always uses Normal user roll mode so the result is a single scalar value.
+    /// </summary>
+    public int RollForTest(int dieSize, WeightMode internalMode, bool useMT, bool badModeEnabled) =>
+        RollOneDie(dieSize, internalMode, UserRollMode.Normal, useMT, badModeEnabled).Value;
+
     // ── Main roll ────────────────────────────────────────────────────────────
 
     /// <summary>
