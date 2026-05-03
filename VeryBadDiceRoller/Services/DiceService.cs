@@ -25,18 +25,21 @@ public class DiceService
     /// <summary>
     /// Rolls <paramref name="count"/> dice of size <paramref name="dieSize"/>
     /// applying the internal weighting bias and the user's roll mode.
+    /// When <paramref name="badModeEnabled"/> is <c>false</c> the cheat engine is bypassed
+    /// and each die is rolled once without any internal bias.
     /// </summary>
     public RollGroup Roll(
         int count, int dieSize, int modifier,
         string? label = null,
         UserRollMode userMode = UserRollMode.Normal,
         bool modPerDie = false,
-        bool useMT = true)
+        bool useMT = true,
+        bool badModeEnabled = true)
     {
         var internalMode = _weightService.GetCurrentMode();
 
         var results = Enumerable.Range(0, count)
-            .Select(_ => RollOneDie(dieSize, internalMode, userMode, useMT))
+            .Select(_ => RollOneDie(dieSize, internalMode, userMode, useMT, badModeEnabled))
             .ToList();
 
         _weightService.RecordRoll();
@@ -57,8 +60,26 @@ public class DiceService
 
     // ── Internal per-die logic (§12.4 table) ────────────────────────────────
 
-    private DieResult RollOneDie(int dieSize, WeightMode internalMode, UserRollMode userMode, bool useMT)
+    private DieResult RollOneDie(int dieSize, WeightMode internalMode, UserRollMode userMode, bool useMT, bool badModeEnabled)
     {
+        if (!badModeEnabled)
+        {
+            // Bad mode disabled: single unbiased roll, respecting user's advantage/disadvantage.
+            if (userMode == UserRollMode.Normal)
+            {
+                int val = useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
+                return new DieResult { DieSize = dieSize, Value = val };
+            }
+            else
+            {
+                int a = useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
+                int b = useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
+                int kept = userMode == UserRollMode.Advantage ? Math.Max(a, b) : Math.Min(a, b);
+                int userDropped = userMode == UserRollMode.Advantage ? Math.Min(a, b) : Math.Max(a, b);
+                return new DieResult { DieSize = dieSize, Value = kept, UserDropped = a == b ? null : userDropped };
+            }
+        }
+
         if (userMode == UserRollMode.Normal)
         {
             // Normal user roll: internal bias selects higher or lower of two raw rolls.
