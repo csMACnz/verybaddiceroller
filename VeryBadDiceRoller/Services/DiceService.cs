@@ -74,7 +74,7 @@ public class DiceService
             {
                 int a = useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
                 int b = useMT ? _mtRng.Next(1, dieSize + 1) : _sysRng.Next(1, dieSize + 1);
-                int kept        = userMode == UserRollMode.Advantage ? Math.Max(a, b) : Math.Min(a, b);
+                int kept = userMode == UserRollMode.Advantage ? Math.Max(a, b) : Math.Min(a, b);
                 int userDropped = userMode == UserRollMode.Advantage ? Math.Min(a, b) : Math.Max(a, b);
                 return new DieResult { DieSize = dieSize, Value = kept, UserDropped = a == b ? null : userDropped };
             }
