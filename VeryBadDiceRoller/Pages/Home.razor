@@ -502,7 +502,9 @@
             </div>
             <p class="modal-desc">
                 Each die is rolled 10,000 times per cycle and checked for even distribution
-                using a chi-square test. ~30% of cycles may show at least one failure — that's normal.
+                using a chi-square test. The test follows the app's current mode — when bad mode is
+                off, ~30% of cycles may show at least one failure (that's normal). When bad mode is
+                on, high failure rates reveal the active bias.
             </p>
             <div class="modal-config-row">
                 <label class="field-label" for="test-cycles">Test Cycles</label>
@@ -658,6 +660,8 @@
     private bool testRunning = false;
     private string testStatus = "";
     private readonly List<TestResult> testResults = [];
+    private bool testSnapshotBadMode;
+    private WeightMode testSnapshotInternalMode;
 
     // Expected per-cycle failure rate (chi-square at α=0.05, 7 dice → ~30% per cycle)
     private const double FailRateLow  = 0.08;
@@ -933,6 +937,11 @@
         testRunning = true;
         testResults.Clear();
         testStatus = "Running…";
+
+        // Snapshot the current app mode so the test is consistent for its entire run.
+        testSnapshotBadMode = badModeEnabled;
+        testSnapshotInternalMode = WeightService.GetCurrentMode();
+
         StateHasChanged();
 
         int[] dice = [4, 6, 8, 10, 12, 20, 100];
@@ -957,7 +966,7 @@
             {
                 var counts = new int[dieSize + 1];
                 for (int r = 0; r < 10_000; r++)
-                    counts[DiceService.RollRawWithAlgorithm(dieSize, testUseMT)]++;
+                    counts[DiceService.RollForTest(dieSize, testSnapshotInternalMode, testUseMT, testSnapshotBadMode)]++;
 
                 double expected = 10_000.0 / dieSize;
                 double chi = 0;
@@ -983,7 +992,10 @@
             });
         }
 
-        testStatus = $"Complete — {dice.Length} dice × {testCycles} cycles × 10,000 rolls.";
+        var modeDesc = !testSnapshotBadMode
+            ? "bad mode OFF"
+            : $"bad mode ON — {testSnapshotInternalMode.ToString().ToLower()} weight";
+        testStatus = $"Complete — {dice.Length} dice × {testCycles} cycles × 10,000 rolls ({modeDesc}).";
         testRunning = false;
     }
 
@@ -993,8 +1005,9 @@
         {
             if (testResults.Count == 0) return "";
             bool allOk = testResults.All(r => r.FailureRate >= FailRateLow && r.FailureRate <= FailRateHigh);
-            bool allSuspect = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
-            return allOk ? "text-adv" : allSuspect ? "text-dis" : "text-warn";
+            bool allAnomalous = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
+            if (testSnapshotBadMode) return allAnomalous ? "text-dis" : "text-warn";
+            return allOk ? "text-adv" : allAnomalous ? "text-dis" : "text-warn";
         }
     }
 
@@ -1003,11 +1016,18 @@
         get
         {
             if (testResults.Count == 0) return "";
+            if (testSnapshotBadMode)
+            {
+                bool allSuspect = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
+                return allSuspect
+                    ? $"⚠ Bias detected — bad mode ({testSnapshotInternalMode.ToString().ToLower()} weight) is actively skewing rolls."
+                    : "⚠ Bad mode is on — results may be partially biased.";
+            }
             bool allOk = testResults.All(r => r.FailureRate >= FailRateLow && r.FailureRate <= FailRateHigh);
-            bool allSuspect = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
+            bool allAnomalous = testResults.All(r => r.FailureRate < FailRateLow || r.FailureRate > FailRateHigh);
             return allOk
                 ? "✓ RNG appears healthy — failure rates near expected ~30% per cycle."
-                : allSuspect
+                : allAnomalous
                     ? "⚠ Suspicious result — consider switching algorithms."
                     : "⚠ Mixed results — some dice show unusual patterns.";
         }
